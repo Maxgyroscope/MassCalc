@@ -61,7 +61,7 @@ function MassCalc_AllTanksFuelMassCalc_PR(Pitch, Roll, BKD_Param_Stuct,SCADE_Out
         %/ температуры топлива в баке.
         
         [MassDataStructDef.Volume, WorkDensity] = MassCalc_FindVolume(Tank, Pitch, Roll, WorkDensity,...
-            WorkTemperature, CapacitySummArr, BKD_Param_Stuct, MassDataStructDef,e_t_dht1,e_t_dht2,...
+            CapacitySummArr, BKD_Param_Stuct, MassDataStructDef,e_t_dht1,e_t_dht2,...
             WorkTemperature_DHT1,WorkTemperature_DHT2);
         Volume = MassDataStructDef.Volume;
         %/ - (В цикле) Сохранение полученного объёма в @ref TankVolumeArr
@@ -325,8 +325,6 @@ TankId_Section31_Left = 3+1;   %/< Идентификатор бака 3 лев�
 TankId_RO_Right = 4+1;         %/< Идентификатор расходного отсека правого борта
 TankId_Section21_Right = 5+1;  %/< Идентификатор бака 2 правого борта
 TankId_Section31_Right = 6+1;  %/< Идентификатор бака 3 правого борта
-TankId_DHT1 = 7+1;             %/< Идентификатор ДХТ1
-TankId_DHT2 = 8+1;             %/< Идентификатор ДХТ2
 
 ResSensId_centr_DT18 = 0+1;  %Центральный бак
 ResSensId_Sec2_L_DT7 = 1+1;  %Отсек 2 левый
@@ -413,9 +411,8 @@ ResSensId_Sec3_R_DHT2 = 4+1; %Отсек 3 правый. Тербодатчик 
 	        Result.Value = TempArr(TankSensId).Val;
 	    end
     else
-	Result.Value = TempArr(TankSensId).Val;
+	Result.Value = TempArr(TankSensId).TempArr;
     end
-    %Result = MassDataStructDef;
     return;
 end
 
@@ -1195,7 +1192,7 @@ end
 %/ \param(in) Temperature температура топлива в указанном баке
 %/ \param(in) e_t_i Значение диэлектрической проницаемости топлива в баке
 %/ \return Возвращает значение плотности в баке с учётом текущей температуры
-function [pi] = MassCalc_DensityInTank( Tank, MassDataStructDef, e_t_i)
+function [pi] = MassCalc_DensityInTank( Tank, Temperature, e_t_i)
 
 TankId_Centr = 0+1;            %/< Идентификатор центрального топливного бака
 TankId_RO_Left = 1+1;          %/< Идентификатор расходного отсека левого борта
@@ -1213,8 +1210,8 @@ p_def =  788;
     
     %extern BKD_Param_Stuct WorkTemperature_DHT1;%Температура полученная от ДХТ1
     %extern BKD_Param_Stuct WorkTemperature_DHT2;%Температура полученная от ДХТ2
-    pi = MassDataStructDef;
-    
+    pi = struct();
+    pi.Value = zeros(length(Temperature.Value),1);
     %MassDataStructDef.pi;
     pi.NoData = false;
     pi.InvalidData = false;
@@ -1296,10 +1293,12 @@ p_def =  788;
     end
     
     %Установка значения по умолчанию если полученное значение неадекватно
-    if((pi.Value < 600) || (pi.Value>1200))
-        pi.Value = p_def;
-        return;
+    for i =1 : length(Temperature.Value)
+    if((pi.Value(i) < 600) || (pi.Value(i)>1200))
+        pi.Value(i) = p_def;
     end
+    end
+    return;
 end
 
 %/ \brief Расчёт диэлектрической проницаемости топлива в баке с ДХТ1 <br>
@@ -1517,7 +1516,7 @@ end
 %/ \param(out) TankTemperature Температура топлива в баке
 %/ \return Возвращает значение диэлектрической проницаемости топлива в указанном баке
 function [MassDataStructDef, Density] = MassCalc_FindVolume( Tank,  Pitch,  Roll, ...
-    Density, TankTemperature, CapacitySummArr,BKD_Param_Stuct, MassDataStructDef, ...
+    Density, CapacitySummArr,BKD_Param_Stuct, MassDataStructDef, ...
     e_t_dht1,e_t_dht2,WorkTemperature_DHT1,WorkTemperature_DHT2)
 TankId_Centr = 0+1;            %/< Идентификатор центрального топливного бака
 TankId_RO_Left = 1+1;          %/< Идентификатор расходного отсека левого борта
@@ -1550,17 +1549,17 @@ TankId_DHT2 = 8+1;             %/< Идентификатор ДХТ2
 
     %/ - Извлечение из массива значения суммарной ёмкости датчиков в баке и определение группы датчиков по которой посчитана сумма
     %В случае обрыва или отсутствия данных пробуем взять данные симетричного бака
-    if(CapacitySummArr(Tank).NoData || CapacitySummArr(Tank).LineCut ||  CapacitySummArr(Tank).OutOfRange)
-    
-	        Volume.InvalidData = true;%Информируем что параметр может быть недостоверным
-
-             Volume.Value = 0;
-	        Volume.NoData = true;
-    else
+    % if(CapacitySummArr(Tank).NoData || CapacitySummArr(Tank).LineCut ||  CapacitySummArr(Tank).OutOfRange)
+    % 
+	%         Volume.InvalidData = true;%Информируем что параметр может быть недостоверным
+    % 
+    %          Volume.Value = 0;
+	%         Volume.NoData = true;
+    % else
     
 	        %Если нет обрыва и данные поступают, работаем с той ёмкостью какая есть
 	        WorkCapacity = CapacitySummArr(Tank);
-    end
+    %end
 	%Если один из датчиков в баке информирует о выходе за допустимый диапазон
 	%информируем что параметр может быть недостоверным
 	if(CapacitySummArr(Tank).OutOfRange)
@@ -1572,13 +1571,15 @@ TankId_DHT2 = 8+1;             %/< Идентификатор ДХТ2
     end
 
     %/ - Получение информации о температуре топлива в баке @ref MassCalc_GetTankTemperature
+        %TankTemperature = struct();
         TankTemperature = MassCalc_GetTankTemperature(Tank,BKD_Param_Stuct,MassDataStructDef);
-        if(TankTemperature.InvalidData)
-	        Volume.InvalidData = true;
-        end
-        if(TankTemperature.NoData)
-	        Volume.NoData = true;
-        end
+
+        % if(TankTemperature.InvalidData)
+	    %     Volume.InvalidData = true;
+        % end
+        % if(TankTemperature.NoData)
+	    %     Volume.NoData = true;
+        % end
 
     %/ - Расчёт диэлектрической проницаемости в выбранном баке @ref MassCalc_DielPronCalc
     MassDataStructDef= MassCalc_DielPronCalc(MassDataStructDef, Tank, TankTemperature, ...
@@ -1587,7 +1588,8 @@ TankId_DHT2 = 8+1;             %/< Идентификатор ДХТ2
     %/ - Расчёт плотности топлива в баке @ref MassCalc_DensityInTank
     pi = TankTemperature;
     Density = MassCalc_DensityInTank( Tank, TankTemperature, e_t_i);
-
+    Density = Density.Value;
+    
     if(Volume.NoData)%Если данных нет вообще дальнейшие расчёты бесполезны
 	 fprintf("данных нет вообще дальнейшие расчёты бесполезны");
     end
@@ -1661,18 +1663,18 @@ TankId_DHT2 = 8+1;             %/< Идентификатор ДХТ2
 	    end
     end
 
-        if(ChipsReadError)
-	        %/ - Если все три микросхемы памяти в отказе
-	        %/ ВЗЯТЬ СИЛЬНО УРЕЗАННЫЕ ГРАДУИРОВОЧНЫЕ ТАБЛИЦЫ ПО УМОЛЧАНИЮ(ЧТОБЫ ХОТЬ КАК-ТО ПОМЕРИТЬ МАССЫ)
-        
-	        %Сформировать признак того что значение может быть недостоверным
-
-	        if(Volume.NoData ~= true)
-	
-	            Volume.InvalidData = true;
-	            Volume.Value = TanksInfo_GetDefaultVolume(Tank, WorkCapacity.Val);
-	        end
-        end
+        % if(ChipsReadError)
+	    %     %/ - Если все три микросхемы памяти в отказе
+	    %     %/ ВЗЯТЬ СИЛЬНО УРЕЗАННЫЕ ГРАДУИРОВОЧНЫЕ ТАБЛИЦЫ ПО УМОЛЧАНИЮ(ЧТОБЫ ХОТЬ КАК-ТО ПОМЕРИТЬ МАССЫ)
+        % 
+	    %     %Сформировать признак того что значение может быть недостоверным
+        % 
+	    %     if(Volume.NoData ~= true)
+        % 
+	    %         Volume.InvalidData = true;
+	    %         Volume.Value = TanksInfo_GetDefaultVolume(Tank, WorkCapacity.Val);
+	    %     end
+        % end
         return;
     end
 end
