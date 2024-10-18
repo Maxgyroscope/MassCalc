@@ -71,7 +71,7 @@ function MassCalc_AllTanksFuelMassCalc_PR(Pitch, Roll, BKD_Param_Stuct,SCADE_Out
         Volume.Value = Volume.Value * 0.001;%Перевод объёма в м3
 
         %/ - (В цикле) Сохранение полученной плотности в @ref TankDensityArr
-        MassDataStructDef.TankDensityArr(Tank) = WorkDensity.Value;
+        MassDataStructDef.TankDensityArr(Tank,:) = WorkDensity;
         
 	 if(Volume.NoData)
 	    %Если данных по объёму нет считать массу бесполезно
@@ -1014,170 +1014,182 @@ end
 %/ \param(in) TankCapacity Ёмкость для которой в таблице ищется объём
 %/ \param(out) Volume Объём полученый из таблицы по заданной ёмкости
 %/ \return true - если объём успешно найден; false - если по каким-то причинам вычислить объём не удалось
-function bool = MassCalc_ReadGradTable( chip, VectorTableRecordStructDef, BKD_Param_Stuct, MassDataStructDef)
+function Volume = MassCalc_ReadGradTable( chip, VectorTableRecordStructDef, BKD_Param_Stuct, MassDataStructDef)
+%   Импорт градуировочных таблиц, вычленение данных объема и запись в
+%   Volume
 
-    VectorTableRecordStructDef.vector;
-     BKD_Param_Stuct.TankCapacity;
-      MassDataStructDef.Volume;
 
-    %/ <b>Последовательность работы: </b>
-    
-    %Если верхнее и нижне значения равны - либо попали точно в точку либо вышли за диапазон таблицы
-    %нет смысла экстрополировать данные при выходе за диапазон. Это почти аварийная ситуация
+% import matlab.io.xml.dom.*
+% 
+% doc = parseFile(Parser,"SUIT75_23_05_24_LH_FEED_QTY.xml");
 
-    memset(TablePoints,0x00,sizeof(GradTableRecordStructDef)*2);
-    
-    FindMin = false;%Признак того что точка меньше заданного значения найдена
-    FindMax = false;%Признак того что точка больше заданного значения найдена
+sampleXMLfile = "SUIT75_23_05_24_LH_FEED_QTY.xml";
+%type(sampleXMLfile)
 
-    %/ - Контроль валидности входной ёмкости @p TankCapacity
-    if(TankCapacity.NoData || TankCapacity.LineCut)%Если данные не поступают
-    %{
- 	Volume.Value = 0;
-	Volume.NoData = true;
-	Volume.InvalidData = true; 
-    %}
-
-    bool = false;
-    end
-
-     ChipCS = chip + 2;
-    
-    %Считать нужно всю таблицу для проверки сходимости CRC
-    %Если контрольная сумма не сошлась забраковать микросхему и попробовать поискать на следующей
-    BytesToRead = vector.RecordNum * Memory_GradTableRecordSize + 2;%2 - байты контрольной суммы
-    TotalBytesReaded = 0;%Общее количество уже считанных
-    LastBytesReaded = 0;%Количество байт считанное последней операцией чтения
-
-    C_crc16 = 0xFFFF;%Посчитанное значение контрольной суммы
-
-    while(BytesToRead ~= 0)
-    
-	    RecordsInPack;%Количество записей в считанном фрагменте
-
-        %/ - Чтение набора данных с указанной микросхемы памяти        
-	    if(BytesToRead > Memory_Com_Arr_Size)%Если количество байт ожидающих чтения больше размера буфера
-	
-	        Memory2_ReadArray(ChipCS, vector.Address + TotalBytesReaded, Memory_Com_Arr_Size, Memory_Com_Arr);
-	        TotalBytesReaded = Memory_Com_Arr_Size + TotalBytesReaded;
-	         LastBytesReaded = Memory_Com_Arr_Size;
-	        BytesToRead =BytesToRead - Memory_Com_Arr_Size;
-
-	        RecordsInPack = Memory_Com_Arr_Size/Memory_GradTableRecordSize;
-	    else%Количество байт ожидающих чтения меньше размера буфера
-	
-	         Memory2_ReadArray(ChipCS, vector.Address + TotalBytesReaded, BytesToRead, Memory_Com_Arr);
-	        TotalBytesReaded = TotalBytesReaded + BytesToRead;
-	         LastBytesReaded = BytesToRead;	     
-
-	        RecordsInPack = (BytesToRead - 2)/Memory_GradTableRecordSize;
-             
-             BytesToRead = BytesToRead - BytesToRead;% = 0
-	    end
-
-	%/ - Расчёт контрольной суммы
-	if(BytesToRead ~= 0)%Ещё не дочитали до конца
-	
-            C_crc16 = Crc16(Memory_Com_Arr, LastBytesReaded, C_crc16);
-	else%Считана последняя часть. Последни 2 байта - контрольная сумма
-	
-	    C_crc16 = Crc16(Memory_Com_Arr, LastBytesReaded - 2, C_crc16);
-
-	    %Принятая контрольная сумма
-	    R_crc16 = 1;%(Memory_Com_Arr(LastBytesReaded - 1) << 8) | Memory_Com_Arr(LastBytesReaded - 2);
-
-	    if(R_crc16 ~= C_crc16)%Если контрольная сумма не сошлась
-	    
-		%Volume.Val = 0;
-		%Volume.LineCut = TankCapacity.LineCut;
-		%Volume.NoData = TankCapacity.NoData;
-		%Volume.OutOfRange = TankCapacity.OutOfRange;
-		bool = false;
-	    end
-	end
-
-	%/ - Расшифоровка принятых данных и поиск точек с значениями ёмкости выше и ниже заданной ёмкасти
-        for i = 0+1:RecordsInPack
-            GradTableRecordStructDef.record;
-            GradTableRecordStructDef.record.Capacity = BytesTo(Memory_Com_Arr + i * Memory_GradTableRecordSize);
-
-            
-	        if( GradTableRecordStructDef.record.Capacity <= TankCapacity.Val)
-	    
-		    FindMin = true;
-            GradTableRecordStructDef.record.Volume = BytesTo(Memory_Com_Arr + i * Memory_GradTableRecordSize + 4);
-		    TablePoints(0) =  GradTableRecordStructDef.record;
-	        end
-	        if(( GradTableRecordStructDef.record.Capacity >= TankCapacity.Val) && (FindMax == false))%Интересует только первая точка превысившая заданное значение
-	    
-		    FindMax = true;
-            GradTableRecordStructDef.record.Volume = BytesTo(Memory_Com_Arr + i * Memory_GradTableRecordSize + 4);
-		    TablePoints(1) =  GradTableRecordStructDef.record;
-	        end 
-	    end
-    end
-
-    %/ - Анализ найденных точек.
-    if((FindMin == false) && (FindMax == false))
-    
-	%Какой-то косяк. Сюда прога не должна никогда попадать
-	%Volume.Val = 0;
-	%Volume.LineCut = TankCapacity.LineCut;
-	%Volume.NoData = TankCapacity.NoData;
-	%Volume.OutOfRange = TankCapacity.OutOfRange;
-	bool =  false;
-    end
-
-    %/ - Если в таблице не было точек больше заданной, значит заданная точка за пределами верхнего диапазона.
-    %/ В этом случае @p Volume присваивается максимальное значение объёма в таблице.
-    if((FindMin == true)&&(FindMax == false))
-    
-	%Выход за предельное максимальное значение
-	Volume.Value = TablePoints(0).Volume;%0 - точка минимума
-    end
-
-    %/ - Если в таблице не было точек меньше заданной, значит заданная точка за пределами нижнего диапазона.
-    %/ В этом случае @p Volume присваивается минимально значение объёма в таблице.
-    %/ Но теоретически сюда не должны никогда попадать.
-    if((FindMin == false)&&(FindMax == true))
-    
-	%Выход за предельное минимальное значение
-	Volume.Value = TablePoints(1).Volume;%1 - точка максимума
-    end
-
-    if((FindMin == true)&&(FindMax == true))
-    	
-        if(TablePoints(0).Capacity == TablePoints(1).Capacity)
-	
-	        %/ - Если значение одной из найденных точек в таблице совпадает с 
-            %/ заданным значением ёмкости @p TankCapacity дальнейшие расчёты не нужны.
-            %/ Попали точно в заданную точку. @p Volume присваивается значение соответствующее найденной точке
-	        Volume.Value = TablePoints(0).Volume;
-            
-            %if(TablePoints(0).Volume ~= TablePoints(1).Volume)
-            %    return false;
-	    else
-	
-	        %/ - Линейная интерполяция объёма по двум точкам таблицы.
-            %/ <b> Интерполяция выполняется по следующей формуле: </b> <br>
-            %/ k = (V2 - V1)/(C2 - C1) <br>
-            %/ b = V1 - k * C1 <br>
-            %/ @p Volume = k * @p TankCapacity + b
-	        kval;
-	        bval;
-
-	        kval = (TablePoints(1).Volume - TablePoints(0).Volume)/(TablePoints(1).Capacity - TablePoints(0).Capacity);
-	        bval = TablePoints(0).Volume - kval * TablePoints(0).Capacity;
-
-	        Volume.Value = kval * TankCapacity.Val + bval;
-	    end
-    end
-
-    %Volume.LineCut = TankCapacity.LineCut;
-    %Volume.NoData = TankCapacity.NoData;
-    %Volume.OutOfRange = TankCapacity.OutOfRange;        
-    
-    bool = true;
+theStruct = parseXML(sampleXMLfile);
+Volume = theStruct;
+    % VectorTableRecordStructDef.vector;
+    %  BKD_Param_Stuct.TankCapacity;
+    %   MassDataStructDef.Volume;
+    % 
+    % %/ <b>Последовательность работы: </b>
+    % 
+    % %Если верхнее и нижне значения равны - либо попали точно в точку либо вышли за диапазон таблицы
+    % %нет смысла экстрополировать данные при выходе за диапазон. Это почти аварийная ситуация
+    % 
+    % memset(TablePoints,0x00,sizeof(GradTableRecordStructDef)*2);
+    % 
+    % FindMin = false;%Признак того что точка меньше заданного значения найдена
+    % FindMax = false;%Признак того что точка больше заданного значения найдена
+    % 
+    % %/ - Контроль валидности входной ёмкости @p TankCapacity
+    % if(TankCapacity.NoData || TankCapacity.LineCut)%Если данные не поступают
+    % %{
+ 	% Volume.Value = 0;
+	% Volume.NoData = true;
+	% Volume.InvalidData = true; 
+    % %}
+    % 
+    % bool = false;
+    % end
+    % 
+    %  ChipCS = chip + 2;
+    % 
+    % %Считать нужно всю таблицу для проверки сходимости CRC
+    % %Если контрольная сумма не сошлась забраковать микросхему и попробовать поискать на следующей
+    % BytesToRead = vector.RecordNum * Memory_GradTableRecordSize + 2;%2 - байты контрольной суммы
+    % TotalBytesReaded = 0;%Общее количество уже считанных
+    % LastBytesReaded = 0;%Количество байт считанное последней операцией чтения
+    % 
+    % C_crc16 = 0xFFFF;%Посчитанное значение контрольной суммы
+    % 
+    % while(BytesToRead ~= 0)
+    % 
+	%     RecordsInPack;%Количество записей в считанном фрагменте
+    % 
+    %     %/ - Чтение набора данных с указанной микросхемы памяти        
+	%     if(BytesToRead > Memory_Com_Arr_Size)%Если количество байт ожидающих чтения больше размера буфера
+    % 
+	%         Memory2_ReadArray(ChipCS, vector.Address + TotalBytesReaded, Memory_Com_Arr_Size, Memory_Com_Arr);
+	%         TotalBytesReaded = Memory_Com_Arr_Size + TotalBytesReaded;
+	%          LastBytesReaded = Memory_Com_Arr_Size;
+	%         BytesToRead =BytesToRead - Memory_Com_Arr_Size;
+    % 
+	%         RecordsInPack = Memory_Com_Arr_Size/Memory_GradTableRecordSize;
+	%     else%Количество байт ожидающих чтения меньше размера буфера
+    % 
+	%          Memory2_ReadArray(ChipCS, vector.Address + TotalBytesReaded, BytesToRead, Memory_Com_Arr);
+	%         TotalBytesReaded = TotalBytesReaded + BytesToRead;
+	%          LastBytesReaded = BytesToRead;	     
+    % 
+	%         RecordsInPack = (BytesToRead - 2)/Memory_GradTableRecordSize;
+    % 
+    %          BytesToRead = BytesToRead - BytesToRead;% = 0
+	%     end
+    % 
+	% %/ - Расчёт контрольной суммы
+	% if(BytesToRead ~= 0)%Ещё не дочитали до конца
+    % 
+    %         C_crc16 = Crc16(Memory_Com_Arr, LastBytesReaded, C_crc16);
+	% else%Считана последняя часть. Последни 2 байта - контрольная сумма
+    % 
+	%     C_crc16 = Crc16(Memory_Com_Arr, LastBytesReaded - 2, C_crc16);
+    % 
+	%     %Принятая контрольная сумма
+	%     R_crc16 = 1;%(Memory_Com_Arr(LastBytesReaded - 1) << 8) | Memory_Com_Arr(LastBytesReaded - 2);
+    % 
+	%     if(R_crc16 ~= C_crc16)%Если контрольная сумма не сошлась
+    % 
+	% 	%Volume.Val = 0;
+	% 	%Volume.LineCut = TankCapacity.LineCut;
+	% 	%Volume.NoData = TankCapacity.NoData;
+	% 	%Volume.OutOfRange = TankCapacity.OutOfRange;
+	% 	bool = false;
+	%     end
+	% end
+    % 
+	% %/ - Расшифоровка принятых данных и поиск точек с значениями ёмкости выше и ниже заданной ёмкасти
+    %     for i = 0+1:RecordsInPack
+    %         GradTableRecordStructDef.record;
+    %         GradTableRecordStructDef.record.Capacity = BytesTo(Memory_Com_Arr + i * Memory_GradTableRecordSize);
+    % 
+    % 
+	%         if( GradTableRecordStructDef.record.Capacity <= TankCapacity.Val)
+    % 
+	% 	    FindMin = true;
+    %         GradTableRecordStructDef.record.Volume = BytesTo(Memory_Com_Arr + i * Memory_GradTableRecordSize + 4);
+	% 	    TablePoints(0) =  GradTableRecordStructDef.record;
+	%         end
+	%         if(( GradTableRecordStructDef.record.Capacity >= TankCapacity.Val) && (FindMax == false))%Интересует только первая точка превысившая заданное значение
+    % 
+	% 	    FindMax = true;
+    %         GradTableRecordStructDef.record.Volume = BytesTo(Memory_Com_Arr + i * Memory_GradTableRecordSize + 4);
+	% 	    TablePoints(1) =  GradTableRecordStructDef.record;
+	%         end 
+	%     end
+    % end
+    % 
+    % %/ - Анализ найденных точек.
+    % if((FindMin == false) && (FindMax == false))
+    % 
+	% %Какой-то косяк. Сюда прога не должна никогда попадать
+	% %Volume.Val = 0;
+	% %Volume.LineCut = TankCapacity.LineCut;
+	% %Volume.NoData = TankCapacity.NoData;
+	% %Volume.OutOfRange = TankCapacity.OutOfRange;
+	% bool =  false;
+    % end
+    % 
+    % %/ - Если в таблице не было точек больше заданной, значит заданная точка за пределами верхнего диапазона.
+    % %/ В этом случае @p Volume присваивается максимальное значение объёма в таблице.
+    % if((FindMin == true)&&(FindMax == false))
+    % 
+	% %Выход за предельное максимальное значение
+	% Volume.Value = TablePoints(0).Volume;%0 - точка минимума
+    % end
+    % 
+    % %/ - Если в таблице не было точек меньше заданной, значит заданная точка за пределами нижнего диапазона.
+    % %/ В этом случае @p Volume присваивается минимально значение объёма в таблице.
+    % %/ Но теоретически сюда не должны никогда попадать.
+    % if((FindMin == false)&&(FindMax == true))
+    % 
+	% %Выход за предельное минимальное значение
+	% Volume.Value = TablePoints(1).Volume;%1 - точка максимума
+    % end
+    % 
+    % if((FindMin == true)&&(FindMax == true))
+    % 
+    %     if(TablePoints(0).Capacity == TablePoints(1).Capacity)
+    % 
+	%         %/ - Если значение одной из найденных точек в таблице совпадает с 
+    %         %/ заданным значением ёмкости @p TankCapacity дальнейшие расчёты не нужны.
+    %         %/ Попали точно в заданную точку. @p Volume присваивается значение соответствующее найденной точке
+	%         Volume.Value = TablePoints(0).Volume;
+    % 
+    %         %if(TablePoints(0).Volume ~= TablePoints(1).Volume)
+    %         %    return false;
+	%     else
+    % 
+	%         %/ - Линейная интерполяция объёма по двум точкам таблицы.
+    %         %/ <b> Интерполяция выполняется по следующей формуле: </b> <br>
+    %         %/ k = (V2 - V1)/(C2 - C1) <br>
+    %         %/ b = V1 - k * C1 <br>
+    %         %/ @p Volume = k * @p TankCapacity + b
+	%         kval;
+	%         bval;
+    % 
+	%         kval = (TablePoints(1).Volume - TablePoints(0).Volume)/(TablePoints(1).Capacity - TablePoints(0).Capacity);
+	%         bval = TablePoints(0).Volume - kval * TablePoints(0).Capacity;
+    % 
+	%         Volume.Value = kval * TankCapacity.Val + bval;
+	%     end
+    % end
+    % 
+    % %Volume.LineCut = TankCapacity.LineCut;
+    % %Volume.NoData = TankCapacity.NoData;
+    % %Volume.OutOfRange = TankCapacity.OutOfRange;        
+    % 
+    % bool = true;
 end
 
 %/ \brief Расчёт значения плотности в указанном баке <br>
@@ -1574,9 +1586,9 @@ TankId_DHT2 = 8+1;             %/< Идентификатор ДХТ2
         %TankTemperature = struct();
         TankTemperature = MassCalc_GetTankTemperature(Tank,BKD_Param_Stuct,MassDataStructDef);
 
-        % if(TankTemperature.InvalidData)
-	    %     Volume.InvalidData = true;
-        % end
+        %if(TankTemperature.InvalidData)
+	        Volume.InvalidData = true;
+        %end
         % if(TankTemperature.NoData)
 	    %     Volume.NoData = true;
         % end
@@ -1586,7 +1598,6 @@ TankId_DHT2 = 8+1;             %/< Идентификатор ДХТ2
         e_t_dht1,e_t_dht2,WorkTemperature_DHT1,WorkTemperature_DHT2);
     e_t_i = MassDataStructDef.e_t_i;
     %/ - Расчёт плотности топлива в баке @ref MassCalc_DensityInTank
-    pi = TankTemperature;
     Density = MassCalc_DensityInTank( Tank, TankTemperature, e_t_i);
     Density = Density.Value;
     
@@ -1624,45 +1635,45 @@ TankId_DHT2 = 8+1;             %/< Идентификатор ДХТ2
         end
     end
     
-    if(ChipsReadError ~= true)
+    %if(ChipsReadError ~= true)
     
-	VectorTableRecordStructDef.ChipsVectors(Memory2_ChipsNum);%массив векторов полученных с каждой микросхемы
-	ResultsArr(Memory2_ChipsNum);%Массив результатов поиска таблиц
+	%VectorTableRecordStructDef.ChipsVectors(Memory2_ChipsNum);%массив векторов полученных с каждой микросхемы
+	%ResultsArr(Memory2_ChipsNum);%Массив результатов поиска таблиц
 
-	if(Volume.NoData ~= true)%Если данных нет не имеет смысла тратить время на чтение таблиц
+	% if(Volume.NoData ~= true)%Если данных нет не имеет смысла тратить время на чтение таблиц
 	
 	    %/ - Поиск векторов градуировочных таблиц в микросхемах памяти                      
             
 	    %Подбор ниаболее подходящей таблицы в каждой из микросхем
-	    for Chip = 0+1:Memory2_ChipsNum
-	    
-		    if( Memory2_ChipFaults(Chip) ~= true )%Проверить что микросхема рабочая. Не в отказе
-		        ResultsArr(Chip) = MassCalc_FindVector(Chip, Tank, TankSensorsWorkGroup(Tank), Pitch, Roll, ChipsVectors(Chip));
-		    else
-		        ResultsArr(Chip) = false;
-            end
-	    end
+	    % for Chip = 0+1:Memory2_ChipsNum
+        % 
+		%     if( Memory2_ChipFaults(Chip) ~= true )%Проверить что микросхема рабочая. Не в отказе
+		%         ResultsArr(Chip) = MassCalc_FindVector(Chip, Tank, TankSensorsWorkGroup(Tank), Pitch, Roll, ChipsVectors(Chip));
+		%     else
+		%         ResultsArr(Chip) = false;
+        %     end
+	    % end
 
 	    %/ - Выбор наиболее подходящего вектора из найденных
-	    BestVectorChipNum;%номер микросхемы памяти где лежит лучший вектор
-	    TableReadyForWork = false;%Признак того что данные таблицы были считаны вез проблем
+	    %BestVectorChipNum;%номер микросхемы памяти где лежит лучший вектор
+	    %TableReadyForWork = false;%Признак того что данные таблицы были считаны вез проблем
 
-	    while((TableReadyForWork ~= true) && (MassCalc_SelectVector(ChipsVectors, Pitch, Roll, ResultsArr, BestVectorChipNum) ~= false))
+	    % while((TableReadyForWork ~= true) && (MassCalc_SelectVector(ChipsVectors, Pitch, Roll, ResultsArr, BestVectorChipNum) ~= false))
 	    
 		    %/ - Чтение градуировочной таблицы из памяти. Получение объёма по емкостям.
-		    ResultsArr(BestVectorChipNum) = MassCalc_ReadGradTable(BestVectorChipNum, ChipsVectors(BestVectorChipNum), WorkCapacity, Volume);
+		    Volume.Value = MassCalc_ReadGradTable(1, 1, WorkCapacity, Volume);
 
-		    if(ResultsArr(BestVectorChipNum))%Проверяем что таблица была считана и объём был получен
-		        TableReadyForWork = true;
-	        end
+		    % if(ResultsArr(BestVectorChipNum))%Проверяем что таблица была считана и объём был получен
+		    %     TableReadyForWork = true;
+	        % end
 
 	        %Если ни одну таблицу не удалось считать
-	        if(TableReadyForWork == false)
-		        ChipsReadError = true;
-            end
-	    end
-    end
-
+	        % if(TableReadyForWork == false)
+		    %     ChipsReadError = true;
+            % end
+	    % end
+    % end
+        %Оставить как эксперимент на будущее
         % if(ChipsReadError)
 	    %     %/ - Если все три микросхемы памяти в отказе
 	    %     %/ ВЗЯТЬ СИЛЬНО УРЕЗАННЫЕ ГРАДУИРОВОЧНЫЕ ТАБЛИЦЫ ПО УМОЛЧАНИЮ(ЧТОБЫ ХОТЬ КАК-ТО ПОМЕРИТЬ МАССЫ)
@@ -1676,7 +1687,7 @@ TankId_DHT2 = 8+1;             %/< Идентификатор ДХТ2
 	    %     end
         % end
         return;
-    end
+    %end
 end
 %/ \brief Пересчёт найденного значения объёма топлива в массу. <br>
 %/ Пересчёт происходит по следующей формуле: <br>

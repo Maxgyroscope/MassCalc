@@ -1,0 +1,17 @@
+<productinfo> 
+
+<matlabrelease>R2012a</matlabrelease>
+<name>Example Manager</name>
+<type>internal</type>
+<icon>ApplicationIcon.DEMOS</icon>
+
+<list>
+<listitem>
+<label>Example Manager</label>
+<callback>com.mathworks.xwidgets.ExampleManager.showViewer
+</callback>
+<icon>ApplicationIcon.DEMOS</icon>
+</listitem>
+</list>
+
+</productinfo>

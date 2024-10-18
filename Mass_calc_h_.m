@@ -5,7 +5,7 @@ close all
 
 %T = readtable('Results_2024_06_11.xlsx',6);
 [data, text, raw] = xlsread('Results_2024_06_11.xlsx',6);
-
+xmlread('SUIT75_23_05_24_LH_FEED_QTY.xml');
 Time = data(:,1); 
 %Емкости
     for i=1:34
@@ -417,7 +417,7 @@ Memory2_ChipsNum = 1;
 
 MassDataStructDef.SummFuelMass = 0;%/< Суммарное значение массы топлива
 MassDataStructDef.TankMassArr( TanksNum ) = 0;%/< Массы топлива в баках
-MassDataStructDef.TankDensityArr( TanksNum ) = 0;%/< Массив плотностей топлива в баках
+MassDataStructDef.TankDensityArr( TanksNum,length(CT_TS_TEMP) ) = 0;%/< Массив плотностей топлива в баках
 MassDataStructDef.TankVolumeArr( TanksNum ) = 0;%/< Массив объёмов топлива по бакам
 
  LastMassArr( TanksNum,LastMassArrSize ) =0;%Последние значения масс для медианного фильтра
